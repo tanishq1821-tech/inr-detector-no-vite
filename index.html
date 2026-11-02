@@ -96,7 +96,7 @@
     // 1. Initialize Model
     async function initModel() {
       try {
-        session = await ort.InferenceSession.create('./inr_model.onnx', {
+        session = await ort.InferenceSession.create('./best.onnx', {
           executionProviders: ['wasm']
         });
         
