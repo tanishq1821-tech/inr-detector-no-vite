@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>INR Currency Denomination Detector</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- ONNX Runtime Web via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-slate-100 min-h-screen flex flex-col items-center justify-center p-6">
+
+  <!-- Main Container Card -->
+  <div class="max-w-xl w-full bg-slate-950/80 backdrop-blur-md border border-slate-800 rounded-2xl shadow-2xl p-8">
+    
+    <!-- Header -->
+    <div class="text-center mb-8">
+      <span class="inline-block bg-emerald-500/10 text-emerald-400 text-xs font-semibold px-3 py-1 rounded-full mb-3 border border-emerald-500/20">
+        AI Client-Side Inference (WASM)
+      </span>
+      <h1 class="text-3xl font-bold tracking-tight text-white">INR Currency Detector</h1>
+      <p class="text-sm text-slate-400 mt-2">Upload or snap a photo of an Indian Rupee note for instant identification.</p>
+    </div>
+
+    <!-- Status Banner -->
+    <div id="statusCard" class="flex items-center gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 mb-6 transition-all">
+      <svg class="animate-spin h-5 w-5 text-amber-400 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+      <div>
+        <p class="text-sm font-medium" id="statusTitle">Loading Model Engine</p>
+        <p class="text-xs opacity-80" id="statusDesc">Downloading and compiling ONNX model into your browser...</p>
+      </div>
+    </div>
+
+    <!-- Upload Dropzone Area -->
+    <label id="dropzoneLabel" class="flex flex-col items-center justify-center border-2 border-dashed border-slate-700 hover:border-indigo-500 rounded-xl p-8 cursor-pointer bg-slate-900/50 hover:bg-slate-900 transition-all opacity-50 pointer-events-none mb-6">
+      <div class="flex flex-col items-center justify-center pt-5 pb-6 text-center">
+        <svg class="w-10 h-10 text-slate-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+        </svg>
+        <p class="mb-2 text-sm text-slate-300"><span class="font-semibold text-indigo-400">Click to upload</span> or drag and drop</p>
+        <p class="text-xs text-slate-500">PNG, JPG or WEBP (Note image)</p>
+      </div>
+      <input type="file" id="imageInput" accept="image/*" class="hidden" disabled />
+    </label>
+
+    <!-- Preview & Result Section -->
+    <div id="displaySection" class="hidden space-y-6">
+      <!-- Image Preview -->
+      <div class="relative rounded-xl overflow-hidden border border-slate-800 bg-slate-900 max-h-72 flex items-center justify-center">
+        <img id="preview" class="max-h-72 w-auto object-contain" alt="Uploaded Note Preview" />
+      </div>
+
+      <!-- Result Card -->
+      <div class="p-5 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between">
+        <div>
+          <span class="text-xs text-slate-400 uppercase tracking-wider font-semibold">Detected Denomination</span>
+          <h2 class="text-3xl font-extrabold text-emerald-400 mt-1" id="denominationText">-</h2>
+        </div>
+        <div class="text-right">
+          <span class="text-xs text-slate-400 uppercase tracking-wider font-semibold">Confidence</span>
+          <p class="text-xl font-bold text-slate-200 mt-1" id="confidenceText">-</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Footer -->
+  <footer class="mt-8 text-xs text-slate-500 text-center">
+    Runs 100% locally in your browser using ONNX Runtime Web & WebAssembly. No data uploaded.
+  </footer>
+
+  <script>
+    const CLASSES = ["10", "20", "50", "100", "200", "500", "2000"];
+    let session = null;
+
+    const statusCard = document.getElementById('statusCard');
+    const statusTitle = document.getElementById('statusTitle');
+    const statusDesc = document.getElementById('statusDesc');
+    const dropzoneLabel = document.getElementById('dropzoneLabel');
+    const imageInput = document.getElementById('imageInput');
+    const displaySection = document.getElementById('displaySection');
+    const preview = document.getElementById('preview');
+    const denominationText = document.getElementById('denominationText');
+    const confidenceText = document.getElementById('confidenceText');
+
+    // 1. Initialize Model
+    async function initModel() {
+      try {
+        session = await ort.InferenceSession.create('./inr_model.onnx', {
+          executionProviders: ['wasm']
+        });
+        
+        // Update UI to Ready state
+        statusCard.className = "flex items-center gap-3 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 mb-6";
+        statusCard.querySelector('svg').outerHTML = `
+          <svg class="w-5 h-5 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+          </svg>
+        `;
+        statusTitle.textContent = "Model Engine Ready";
+        statusDesc.textContent = "System is fully loaded and running offline in your browser.";
+        
+        dropzoneLabel.classList.remove('opacity-50', 'pointer-events-none');
+        imageInput.disabled = false;
+      } catch (err) {
+        console.error(err);
+        statusCard.className = "flex items-center gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 mb-6";
+        statusTitle.textContent = "Failed to Load Model";
+        statusDesc.textContent = "Ensure 'inr_model.onnx' is in the root directory.";
+      }
+    }
+
+    // 2. Handle Upload
+    imageInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file || !session) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        preview.src = event.target.result;
+        displaySection.classList.remove('hidden');
+        runInference(preview);
+      };
+      reader.readAsDataURL(file);
+    });
+
+    // 3. Run Inference
+    async function runInference(imgElement) {
+      statusCard.className = "flex items-center gap-3 p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 mb-6";
+      statusTitle.textContent = "Analyzing Note...";
+      statusDesc.textContent = "Preprocessing image tensor and calculating classification probabilities.";
+
+      // Wait for image to fully render in DOM element before processing
+      if (!imgElement.complete) {
+        await new Promise((resolve) => { imgElement.onload = resolve; });
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 224;
+      canvas.height = 224;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(imgElement, 0, 0, 224, 224);
+
+      const imgData = ctx.getImageData(0, 0, 224, 224).data;
+
+      const floatR = new Float32Array(224 * 224);
+      const floatG = new Float32Array(224 * 224);
+      const floatB = new Float32Array(224 * 224);
+
+      for (let i = 0; i < 224 * 224; i++) {
+        floatR[i] = imgData[i * 4] / 255.0;
+        floatG[i] = imgData[i * 4 + 1] / 255.0;
+        floatB[i] = imgData[i * 4 + 2] / 255.0;
+      }
+
+      const inputBuffer = new Float32Array(3 * 224 * 224);
+      inputBuffer.set(floatR, 0);
+      inputBuffer.set(floatG, 224 * 224);
+      inputBuffer.set(floatB, 2 * 224 * 224);
+
+      const inputTensor = new ort.Tensor('float32', inputBuffer, [1, 3, 224, 224]);
+      const feeds = { [session.inputNames[0]]: inputTensor };
+      
+      const outputMap = await session.run(feeds);
+      const outputData = outputMap[session.outputNames[0]].data;
+
+      // Softmax calculation
+      const expScores = Array.from(outputData).map(v => Math.exp(v));
+      const sumExp = expScores.reduce((a, b) => a + b, 0);
+      const probs = expScores.map(v => v / sumExp);
+
+      let maxIdx = 0;
+      let maxProb = probs[0];
+      for (let i = 1; i < probs.length; i++) {
+        if (probs[i] > maxProb) {
+          maxProb = probs[i];
+          maxIdx = i;
+        }
+      }
+
+      denominationText.textContent = `₹${CLASSES[maxIdx]}`;
+      confidenceText.textContent = `${Math.round(maxProb * 100)}%`;
+
+      // Reset status back to ready
+      statusCard.className = "flex items-center gap-3 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 mb-6";
+      statusTitle.textContent = "Inference Complete";
+      statusDesc.textContent = "Upload another note image to test again.";
+    }
+
+    initModel();
+  </script>
+</body>
+</html>
